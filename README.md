@@ -39,6 +39,7 @@ dust2-fps/
 │       └── screens.js      # 开始 / 暂停 / 结算界面切换
 ├── server.js               # Node.js 静态文件服务器（零第三方依赖）
 ├── server.py               # Python 静态文件服务器（仅标准库）
+├── backup.ps1              # 备份 / 还原脚本（改代码前先跑一次）
 ├── README.md
 ├── screenshot.png          # 游戏内截图
 └── screenshot-menu.png     # 开始界面截图
@@ -47,6 +48,36 @@ dust2-fps/
 模块之间通过 ES Module 的 `import` / `export` 通信；敌人列表、死亡事件等通过注入回调和
 `state.js` 中的 `hooks` 传递，避免循环依赖。想改手感只需看 `js/core/config.js`，
 想改地图布局看 `js/world/map.js`，想改 AI 看 `js/entities/bots.js`。
+
+## 备份与还原
+
+**改代码前先备份**，这样出故障可以一键还原。
+
+```powershell
+cd dust2-fps
+powershell -ExecutionPolicy Bypass -File .\backup.ps1
+```
+
+脚本会在 `D:\备份` 下生成两份东西：
+
+- `D:\备份\dust2-fps\` —— 始终与项目当前状态一致的镜像
+- `D:\备份\snapshots\dust2-fps-<时间戳>\` —— 带时间戳的历史快照，默认保留最近 10 份
+
+两份都包含 `.git`，所以快照本身就是完整仓库，历史提交不会丢。
+
+还原某个快照：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\backup.ps1 -Restore "D:\备份\snapshots\dust2-fps-20261020-170747"
+```
+
+脚本会要求输入 `yes` 确认，覆盖回项目目录（含 `.git`）。
+
+指定目标盘或保留份数：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\backup.ps1 -DestRoot "E:\备份" -Keep 30
+```
 
 ## 方式一：Node.js 启动
 
