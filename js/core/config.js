@@ -16,7 +16,7 @@ export const GRAVITY = 20;
 export const JUMP_SPEED = 6.6;
 export const LOOK_SENS = 0.0022;     // 鼠标灵敏度
 
-/* 武器 */
+/* 武器：具体参数见 js/core/weapons.js（每把枪独立的伤害/射速/弹匣） */
 export const MAX_AMMO = 30;
 export const RELOAD_TIME = 1.45;
 export const FIRE_INTERVAL = 0.105;  // 连发间隔（秒）

@@ -5,16 +5,18 @@
    ========================================================================= */
 
 import { THREE } from './core/three.js';
-import { MAX_AMMO, RELOAD_TIME, FIRE_INTERVAL } from './core/config.js';
-import { G, player, keys, input, hooks } from './core/state.js';
+import { G, player, keys, input, hooks, currentWeapon } from './core/state.js';
+import { WEAPON_LIST, WEAPON_SLOTS, WEAPONS } from './core/weapons.js';
 import { camera, scene, renderer, gunScene, gunCamera, getQualityLevel } from './world/scene.js';
 import { worldMeshes, groundHeightAt, resolveCollision, colliders } from './world/map.js';
 import {
   spawnTracer, spawnImpact, spawnBlood, addBulletHole, updateEffects, clearEffects,
 } from './world/effects.js';
 import { tuneQuality } from './world/scene.js';
-import { initAudio, playGunshot, playReload } from './world/audio.js';
-import { kickWeapon, resetWeapon, updateGunVisual } from './world/weapon.js';
+import {
+  initAudio, playGunshot, playAkShot, playReload, playKnifeSwing, playKnifeHit, playSwitch,
+} from './world/audio.js';
+import { kickWeapon, resetWeapon, updateGunVisual, setWeaponModel, swingKnife, getWeaponModelId } from './world/weapon.js';
 import { look, updatePlayer, syncCamera, updateRecoil, damagePlayer } from './entities/player.js';
 import { bots, spawnBots, clearBots, getBotHitMeshes, getBotVersion } from './entities/bots.js';
 import { updateHUD, drawMinimap, resetHUD, bindBotSource, showHitmarker } from './ui/hud.js';
@@ -35,11 +37,14 @@ loadPrefs();
 
 /* --------------------------------------------------------------- 射击 */
 const shootRay = new THREE.Raycaster();
+const meleeRay = new THREE.Raycaster();
 const tmpDir = new THREE.Vector3();
 const muzzleWorld = new THREE.Vector3();
 const tmpNormal = new THREE.Vector3();
 const tmpEnd = new THREE.Vector3();
 const tmpNormalMat = new THREE.Matrix3();
+const tmpBlock = new THREE.Vector3();
+const tmpHitPoint = new THREE.Vector3();
 
 /* 射击目标列表缓存：世界网格不变，只有敌人网格会增减，
    用版本号避免每发子弹都重新 concat 数组。 */
@@ -59,25 +64,55 @@ function getMuzzleWorld() {
     .add(camera.position);
 }
 
+/* 切枪动画时长（秒），期间不能开火 */
+const SWITCH_TIME = 0.34;
+
+/** 切换到指定武器；切枪会打断换弹 */
+export function switchWeapon(id) {
+  if (G.state !== 'playing') return;
+  if (!WEAPONS[id] || id === G.weapon || G.switching > 0) return;
+  G.switching = SWITCH_TIME;
+  G.weapon = id;
+  G.reloading = false;
+  G.reloadEnd = 0;
+  G.nextShot = Math.max(G.nextShot, G.time + SWITCH_TIME);
+  setWeaponModel(id);
+  playSwitch();
+  updateHUD();
+}
+
+/** 鼠标滚轮 / 数字键循环切换武器 */
+export function cycleWeapon(dir) {
+  const i = WEAPON_SLOTS.indexOf(G.weapon);
+  const n = WEAPON_SLOTS.length;
+  switchWeapon(WEAPON_SLOTS[(i + dir + n * 2) % n]);
+}
+
 export function playerShoot() {
   if (G.state !== 'playing' || G.reloading) return;
+  if (G.switching > 0) return;
   if (G.time < G.nextShot) return;
-  if (G.ammo <= 0) { startReload(); return; }
 
-  G.ammo--;
-  G.nextShot = G.time + FIRE_INTERVAL;
+  const w = currentWeapon();
+  if (w.kind === 'melee') { meleeAttack(w); return; }
+
+  const mag = G.ammo[w.id];
+  if (mag.mag <= 0) { startReload(); return; }
+
+  mag.mag--;
+  G.nextShot = G.time + w.fireInterval;
   G.shotsFired++;
-  G.recoil = Math.min(0.085, G.recoil + 0.014 * (1 - player.crouchAmt * 0.35));
-  G.recoilYaw += (Math.random() - 0.5) * 0.012;
-  G.bloom = Math.min(1, G.bloom + 0.32);
-  G.shake = Math.min(0.5, G.shake + 0.05);
+  G.recoil = Math.min(w.maxRecoil, G.recoil + w.recoil * (1 - player.crouchAmt * 0.35));
+  G.recoilYaw += (Math.random() - 0.5) * w.recoilYaw;
+  G.bloom = Math.min(1, G.bloom + w.bloom);
+  G.shake = Math.min(0.5, G.shake + w.shake);
   kickWeapon();
-  playGunshot();
+  if (w.sound === 'ak') playAkShot(); else playGunshot();
 
   /* 移动中与连续射击会扩大散布；蹲下则收束散布 */
   const moving = player.moveAmt > 0.25;
   const crouchFactor = 1 - player.crouchAmt * 0.5;
-  const spread = (0.004 + (moving ? 0.009 : 0) + G.bloom * 0.01) * crouchFactor;
+  const spread = (w.spread.base + (moving ? w.spread.move : 0) + G.bloom * w.spread.bloom) * crouchFactor;
   camera.getWorldDirection(tmpDir);
   tmpDir.x += (Math.random() - 0.5) * spread;
   tmpDir.y += (Math.random() - 0.5) * spread;
@@ -98,7 +133,7 @@ export function playerShoot() {
     if (bot && bot.alive) {
       G.shotsHit++;
       const part = hit.object.userData.part;
-      const dmg = part === 'head' ? 120 : part === 'body' ? 36 : 24;
+      const dmg = part === 'head' ? w.damage.head : part === 'body' ? w.damage.body : w.damage.leg;
       spawnBlood(hit.point, part === 'head');
       bot.takeDamage(dmg);
       showHitmarker(part === 'head');
@@ -118,19 +153,72 @@ export function playerShoot() {
     spawnTracer(muzzle, tmpEnd, 0xffe0a0, 0.07);
   }
 
-  if (G.ammo <= 0) startReload();
+  if (mag.mag <= 0) startReload();
+  updateHUD();
+}
+
+/**
+ * 近战挥击：正前方扇形范围内、视线通畅的第一个敌人会被击中。
+ * 距离越近伤害越高（贴身刺击最疼）。
+ */
+function meleeAttack(w) {
+  G.nextShot = G.time + w.fireInterval;
+  G.shotsFired++;
+  swingKnife();
+  playKnifeSwing();
+  G.shake = Math.min(0.4, G.shake + 0.05);
+
+  camera.getWorldDirection(tmpDir);
+  meleeRay.set(camera.position, tmpDir);
+  meleeRay.far = w.range;
+
+  refreshShootTargets();
+  const hits = meleeRay.intersectObjects(shootTargets, false);
+  let hit = null;
+  for (const h of hits) {
+    const bot = h.object.userData.bot;
+    if (bot && bot.alive) { hit = h; break; }
+    /* 被墙挡住就挥空 */
+    break;
+  }
+
+  if (hit) {
+    const bot = hit.object.userData.bot;
+    const part = hit.object.userData.part;
+    /* 贴身程度：越近伤害越高（1.0 → 1.6 倍） */
+    const dist = hit.distance;
+    const close = Math.max(1, Math.min(1.6, 1 + (w.range - dist) * 0.35));
+    const base = part === 'head' ? w.damage.head : part === 'body' ? w.damage.body : w.damage.leg;
+    const dmg = Math.round(base * close);
+    G.shotsHit++;
+    spawnBlood(hit.point, part === 'head');
+    bot.takeDamage(dmg);
+    showHitmarker(part === 'head');
+    playKnifeHit();
+  }
   updateHUD();
 }
 
 export function startReload() {
-  if (G.state !== 'playing' || G.reloading || G.ammo >= MAX_AMMO) return;
+  if (G.state !== 'playing' || G.reloading || G.switching > 0) return;
+  const w = currentWeapon();
+  if (w.kind !== 'gun') return;
+  const mag = G.ammo[w.id];
+  if (mag.mag >= w.magSize || mag.reserve <= 0) return;
   G.reloading = true;
-  G.reloadEnd = G.time + RELOAD_TIME;
+  G.reloadEnd = G.time + w.reloadTime;
   playReload();
 }
 
 export function finishReload() {
-  G.ammo = MAX_AMMO;
+  const w = currentWeapon();
+  const mag = G.ammo[w.id];
+  if (mag) {
+    const need = w.magSize - mag.mag;
+    const take = Math.min(need, mag.reserve);
+    mag.mag += take;
+    mag.reserve -= take;
+  }
   G.reloading = false;
   updateHUD();
 }
@@ -163,7 +251,14 @@ function updateGame(dt) {
   updatePlayer(dt);
   syncCamera();
 
-  if (input.mouseHeld) playerShoot();
+  if (G.switching > 0) {
+    G.switching = Math.max(0, G.switching - dt);
+    /* 切枪动画结束时解锁 */
+    if (G.switching === 0) G.nextShot = Math.max(G.nextShot, G.time);
+  }
+
+  /* 自动武器按住左键连发；近战武器只在按下瞬间挥一次 */
+  if (input.mouseHeld && currentWeapon().automatic) playerShoot();
   if (G.reloading && G.time >= G.reloadEnd) finishReload();
 
   for (const b of bots) b.update(dt);
@@ -196,7 +291,11 @@ export function startGame() {
   G.bloom = 0;
   G.shake = 0;
   G.kills = 0;
-  G.ammo = MAX_AMMO;
+  G.weapon = 'm4a1';
+  for (const w of WEAPON_LIST) {
+    G.ammo[w.id] = { mag: w.magSize, reserve: w.reserve };
+  }
+  G.switching = 0;
   G.reloading = false;
   G.reloadEnd = 0;
   G.nextShot = 0;
@@ -330,6 +429,8 @@ bindInput({
   pause: togglePause,
   resume: resumeGame,
   start: startGame,
+  weapon: switchWeapon,
+  weaponCycle: cycleWeapon,
 });
 
 initKeySettings();
@@ -357,6 +458,8 @@ window.__dust = {
   prefs,
   look,
   playerShoot,
+  switchWeapon,
+  cycleWeapon,
   damagePlayer,
   startGame,
   groundHeightAt,

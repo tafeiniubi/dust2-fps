@@ -4,7 +4,7 @@
    ========================================================================= */
 
 import { THREE } from './three.js';
-import { MAX_AMMO } from './config.js';
+import { WEAPON_LIST, getWeapon } from './weapons.js';
 
 /* 整局游戏状态 */
 export const G = {
@@ -17,7 +17,6 @@ export const G = {
   bloom: 0,
   shake: 0,
   kills: 0,
-  ammo: MAX_AMMO,
   reloading: false,
   reloadEnd: 0,
   nextShot: 0,
@@ -25,7 +24,35 @@ export const G = {
   shotsHit: 0,
   endAt: 0,
   endWin: false,
+  /* 当前武器 id */
+  weapon: 'm4a1',
+  /* 每把武器的弹药：{ mag, reserve } */
+  ammo: {},
+  /* 切枪动画锁：切枪期间不能开火 */
+  switching: 0,
 };
+
+/* 初始化每把武器的弹匣与备弹 */
+for (const w of WEAPON_LIST) {
+  G.ammo[w.id] = { mag: w.magSize, reserve: w.reserve };
+}
+
+/** 当前武器定义 */
+export function currentWeapon() {
+  return getWeapon(G.weapon);
+}
+
+/** 当前弹匣子弹数 */
+export function currentAmmo() {
+  const a = G.ammo[G.weapon];
+  return a ? a.mag : 0;
+}
+
+/** 当前武器的备弹 */
+export function currentReserve() {
+  const a = G.ammo[G.weapon];
+  return a ? a.reserve : 0;
+}
 
 /* 玩家实体 */
 export const player = {

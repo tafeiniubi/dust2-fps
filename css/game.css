@@ -60,6 +60,16 @@ html,body{
 .ammoInf{font-size:22px;color:#c9b184;}
 .ammoCap{margin-top:4px;font-size:9px;letter-spacing:.22em;color:#d7bd93;opacity:.75;}
 
+/* 武器槽位：显示当前携带的三把武器，高亮正在使用的那把 */
+#weaponList{margin-top:8px;display:flex;flex-direction:column;gap:3px;align-items:flex-end;}
+.wSlot{display:flex;align-items:center;gap:7px;padding:3px 8px;font-size:11px;letter-spacing:.06em;
+  color:#8f8064;background:rgba(0,0,0,.28);border-right:2px solid transparent;border-radius:2px;
+  transition:color .12s,background .12s,border-color .12s;}
+.wSlot b{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+  font-size:9px;font-weight:700;color:#0b0a08;background:#7d6c4c;border-radius:2px;}
+.wSlot.active{color:#ffe9b0;background:rgba(255,196,110,.14);border-right-color:var(--amber);}
+.wSlot.active b{background:var(--amber);color:#17130c;}
+
 #crosshair{position:fixed;left:50%;top:50%;width:0;height:0;z-index:20;--gap:7px;}
 #crosshair i{position:absolute;display:block;background:#e9ffd0;box-shadow:0 0 4px rgba(0,0,0,.9);}
 #crosshair .t{width:2px;height:9px;left:-1px;top:calc(-9px - var(--gap));}

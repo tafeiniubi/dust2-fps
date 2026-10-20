@@ -35,11 +35,16 @@
   </div>
 
   <div id="bottomRight">
-    <div class="ammoRow"><span id="ammoNum">30</span><span class="ammoSep">/</span><span class="ammoInf">∞</span></div>
-    <div class="ammoCap">M4A1 · 5.56MM</div>
+    <div class="ammoRow"><span id="ammoNum">30</span><span class="ammoSep">/</span><span class="ammoInf" id="ammoRes">90</span></div>
+    <div class="ammoCap" id="ammoCap">M4A1 · 5.56MM</div>
+    <div id="weaponList">
+      <div class="wSlot active" data-slot="m4a1"><b>1</b><span>M4A1</span></div>
+      <div class="wSlot" data-slot="ak47"><b>2</b><span>AK-47</span></div>
+      <div class="wSlot" data-slot="knife"><b>3</b><span>小刀</span></div>
+    </div>
   </div>
 
-  <div id="hintBar">WASD 移动 · 左键拖动转向 / 射击 · 空格跳跃 · Shift 静步 · C 蹲下 · R 换弹 · L 锁定鼠标</div>
+  <div id="hintBar">WASD 移动 · 左键拖动转向 / 射击 · 空格跳跃 · Shift 静步 · C 蹲下 · R 换弹 · 1/2/3 换武器 · L 锁定鼠标</div>
   <div id="vignette"></div>
   <div id="flash"></div>
 </div>
@@ -77,6 +82,7 @@
       <div class="ctrl"><kbd data-bind="walk">Shift</kbd><span>静步</span></div>
       <div class="ctrl"><kbd data-bind="crouch">C</kbd><span>蹲下</span></div>
       <div class="ctrl"><kbd data-bind="reload">R</kbd><span>换弹</span></div>
+      <div class="ctrl"><kbd>1 / 2 / 3</kbd><span>切换武器</span></div>
       <div class="ctrl"><kbd data-bind="lock">L</kbd><span>锁定鼠标</span></div>
       <div class="ctrl"><kbd>Esc</kbd><span>暂停 / 按键设置</span></div>
     </div>

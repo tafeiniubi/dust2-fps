@@ -6,8 +6,8 @@
 
 import { dom } from './dom.js';
 import { MINI } from '../core/config.js';
-import { AREAS } from '../world/map.js';
-import { G, player } from '../core/state.js';
+import { AREAS, AREA_NAMES } from '../world/map.js';
+import { G, player, currentWeapon, currentAmmo, currentReserve } from '../core/state.js';
 import { playHit } from '../world/audio.js';
 
 /* 敌人列表由 game.js 注入，避免 hud 反向依赖 bots 模块 */
@@ -16,11 +16,18 @@ export function bindBotSource(fn) {
   botSource = fn;
 }
 
-let hudCache = { hp: -1, ammo: -1, kills: -1, rem: -1, reload: null };
+let hudCache = { hp: -1, ammo: -1, res: -1, kills: -1, rem: -1, reload: null, weapon: '' };
 const killFeedTimers = [];
 
+/** 弹匣数字：近战武器不显示数字 */
+function ammoText() {
+  const w = currentWeapon();
+  if (w.kind === 'melee') return '∞';
+  return String(currentAmmo()).padStart(2, '0');
+}
+
 export function resetHUD() {
-  hudCache = { hp: -1, ammo: -1, kills: -1, rem: -1, reload: null };
+  hudCache = { hp: -1, ammo: -1, res: -1, kills: -1, rem: -1, reload: null, weapon: '' };
 }
 
 export function updateHUD() {
@@ -36,12 +43,32 @@ export function updateHUD() {
         : 'linear-gradient(90deg,#c33b2b,#ef6a4c)';
   }
 
+  /* 当前武器：名字、弹药与槽位高亮 */
+  const w = currentWeapon();
+  if (G.weapon !== hudCache.weapon) {
+    hudCache.weapon = G.weapon;
+    hudCache.ammo = -1;
+    hudCache.res = -2;
+    hudCache.reload = null;
+    dom.ammoCap.textContent = w.name + ' · ' + w.ammoLabel;
+    for (const el of dom.weaponList.querySelectorAll('.wSlot')) {
+      el.classList.toggle('active', el.dataset.slot === G.weapon);
+    }
+  }
+
   if (G.reloading !== hudCache.reload) {
     hudCache.reload = G.reloading;
-    dom.ammoNum.textContent = G.reloading ? '--' : String(G.ammo).padStart(2, '0');
-  } else if (!G.reloading && G.ammo !== hudCache.ammo) {
-    hudCache.ammo = G.ammo;
-    dom.ammoNum.textContent = String(G.ammo).padStart(2, '0');
+    dom.ammoNum.textContent = G.reloading ? '--' : ammoText();
+  } else if (!G.reloading && (currentAmmo() !== hudCache.ammo || w.kind === 'melee')) {
+    hudCache.ammo = currentAmmo();
+    dom.ammoNum.textContent = ammoText();
+  }
+
+  /* 备弹：近战武器显示破折号 */
+  const res = w.kind === 'gun' ? currentReserve() : -1;
+  if (res !== hudCache.res) {
+    hudCache.res = res;
+    dom.ammoRes.textContent = w.kind === 'gun' ? String(res) : '—';
   }
 
   if (G.kills !== hudCache.kills) {
@@ -118,6 +145,14 @@ export function buildMinimapBase() {
   ctx.font = 'bold 9px "Segoe UI", sans-serif';
   ctx.fillText('CT', mX(-3), mZ(-37));
   ctx.fillText('T', mX(20), mZ(41));
+
+  /* 区域名（小号字），让玩家知道自己在哪 */
+  ctx.fillStyle = 'rgba(240,220,180,0.42)';
+  ctx.font = '7px "Segoe UI", sans-serif';
+  for (const name in AREA_NAMES) {
+    const a = AREA_NAMES[name];
+    ctx.fillText(name, mX((a[0] + a[2]) / 2), mZ((a[1] + a[3]) / 2));
+  }
   miniBase = c;
 }
 buildMinimapBase();

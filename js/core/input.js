@@ -6,12 +6,25 @@
 
 import { G, keys, input } from '../core/state.js';
 import { bindings, rebinding } from '../core/bindings.js';
+import { WEAPON_LIST } from '../core/weapons.js';
 import { dom } from '../ui/dom.js';
 
 let handlers = {};
 
 export function bindInput(h) {
   handlers = h || {};
+}
+
+/* 数字键 → 武器槽位：1 / 2 / 3 */
+const SLOT_KEYS = {
+  Digit1: 1, Digit2: 2, Digit3: 3,
+  Numpad1: 1, Numpad2: 2, Numpad3: 3,
+};
+
+/** 槽位号 → 武器 id */
+function weaponIdForSlot(slot) {
+  const w = WEAPON_LIST.find((x) => x.slot === slot);
+  return w ? w.id : null;
 }
 
 /* --------------------------------------------------------------- 鼠标转向与射击 */
@@ -85,10 +98,20 @@ window.addEventListener('keydown', (e) => {
     if (handlers.reload) handlers.reload();
   } else if (e.code === bindings.lock) {
     togglePointerLock();
+  } else if (SLOT_KEYS[e.code]) {
+    const id = weaponIdForSlot(SLOT_KEYS[e.code]);
+    if (id && handlers.weapon) handlers.weapon(id);
   }
 
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
 });
+
+/* 滚轮切枪：向下换下一把，向上换上一把 */
+window.addEventListener('wheel', (e) => {
+  if (G.state !== 'playing') return;
+  e.preventDefault();
+  if (handlers.weaponCycle) handlers.weaponCycle(e.deltaY > 0 ? 1 : -1);
+}, { passive: false });
 
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 

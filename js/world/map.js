@@ -108,6 +108,8 @@ function addSandbags(cx, cz, len, ry) {
 /** 斜坡：北侧（z1）高、南侧（z2）低 */
 function addRamp(x1, z1, x2, z2, h) {
   ramps.push({ x1, z1, x2, z2, h });
+  addRampCollider(x1, z1, x2, z2, h);
+
   const pos = new Float32Array([
     x1, 0, z1, x2, h, z1, x2, 0, z1,   // 北侧立面
     x1, h, z1, x2, 0, z2, x2, h, z1,   // 斜面
@@ -126,6 +128,81 @@ function addRamp(x1, z1, x2, z2, h) {
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   applyColor(geo, 0xffffff);
   bucket(MAT.ramp).push(geo);
+}
+
+/**
+ * 斜坡的侧面挡墙：
+ * 斜坡本体只有高度场，没有实体侧面，玩家可以从坡边走空。
+ * 这里沿坡道两侧加一排与坡面同高的台阶块，把坡道"包"成一条真正的通道。
+ */
+function addRampCollider(x1, z1, x2, z2, h) {
+  const steps = 6;
+  for (let i = 0; i < steps; i++) {
+    const t0 = i / steps, t1 = (i + 1) / steps;
+    const za = z1 + (z2 - z1) * t0;
+    const zb = z1 + (z2 - z1) * t1;
+    const hh = h * (1 - t0);
+    if (hh < 0.08) continue;
+    /* 两侧各放一条薄板，厚度 0.3 */
+    addCollider(x1 - 0.3, za, x1, zb, 0, hh);
+    addCollider(x2, za, x2 + 0.3, zb, 0, hh);
+  }
+}
+
+/**
+ * 门框 / 拱门：在通道口立两根柱子加一道横梁，视觉上像一道门。
+ * axis='x' 表示门洞沿 X 方向展开（柱子分列在 x 两侧），'z' 则反之。
+ */
+function addArch(cx, cz, width, height, axis, opts) {
+  opts = opts || {};
+  const postW = opts.postW || 0.7;    // 柱子沿跨度方向的厚度
+  const postD = opts.postD || 0.9;    // 柱子垂直跨度方向的厚度
+  const half = width / 2;
+
+  for (const s of [-1, 1]) {
+    const px = axis === 'x' ? cx + half * s : cx;
+    const pz = axis === 'x' ? cz : cz + half * s;
+    const w = axis === 'x' ? postW : postD;
+    const d = axis === 'x' ? postD : postW;
+    const g = new THREE.BoxGeometry(w, height, d);
+    scaleUv(g, w / TILE.wall, height / TILE.wall);
+    g.translate(px, height / 2, pz);
+    applyColor(g, 0xd8c096);
+    bucket(MAT.wall).push(g);
+    addCollider(px - w / 2, pz - d / 2, px + w / 2, pz + d / 2, 0, height);
+  }
+
+  /* 横梁 */
+  const beamT = postD + 0.3;
+  const bw = axis === 'x' ? width + postW + 0.5 : beamT;
+  const bd = axis === 'x' ? beamT : width + postW + 0.5;
+  const beam = new THREE.BoxGeometry(bw, 0.6, bd);
+  scaleUv(beam, bw / TILE.wall, 0.6 / TILE.wall);
+  beam.translate(cx, height + 0.22, cz);
+  applyColor(beam, 0xb59a6c);
+  bucket(MAT.trim).push(beam);
+
+  /* 门楣上的铁牌 */
+  if (opts.sign !== false) {
+    const sw = axis === 'x' ? 1.6 : 0.09;
+    const sd = axis === 'x' ? 0.09 : 1.6;
+    const sign = new THREE.BoxGeometry(sw, 0.44, sd);
+    scaleUv(sign, sw, 0.44);
+    sign.translate(cx, height - 0.3, cz);
+    applyColor(sign, 0x6a5a3c);
+    bucket(MAT.metal).push(sign);
+  }
+}
+
+/** 石头：低多边形圆石，边缘装饰，少数带碰撞 */
+function addRock(cx, cz, r, h, solid) {
+  const g = new THREE.CylinderGeometry(r * 0.85, r, h, 6, 1);
+  scaleUv(g, 1, 1);
+  g.rotateY(Math.random() * Math.PI);
+  g.translate(cx, h / 2, cz);
+  applyColor(g, 0xc0a781);
+  bucket(MAT.hill).push(g);
+  if (solid) addCollider(cx - r * 0.8, cz - r * 0.8, cx + r * 0.8, cz + r * 0.8, 0, h);
 }
 
 /* --------------------------------------------------------------- 地面 */
@@ -193,6 +270,10 @@ const CRATES = [
   [30, -40, 2, 1.8, 0], [30, -40, 1.5, 1.4, 1.8], [38, -36, 2, 1.7, 0],
   [-38, -38, 2, 1.8, 0], [-38, -38, 1.5, 1.4, 1.8], [-24, -40, 2, 1.7, 0], [-30, -30, 2, 1.6, 0],
   [-38, 24, 2, 1.7, 0], [-24, -16, 2, 1.6, 0], [6, -40, 2, 1.7, 0], [-12, -32, 2, 1.6, 0],
+  /* 补充的中路与通道掩体，让交火路线更有层次 */
+  [-1, 20, 1.8, 1.5, 0], [3, -4, 1.8, 1.5, 0], [26, 12, 1.8, 1.5, 0], [34, -8, 1.8, 1.5, 0],
+  [-30, 4, 1.8, 1.5, 0], [-34, -18, 1.8, 1.5, 0], [20, -20, 1.8, 1.5, 0], [36, -24, 1.8, 1.5, 0],
+  [-14, 24, 1.8, 1.5, 0], [10, -34, 1.8, 1.5, 0],
 ];
 for (const c of CRATES) addCrate(c[0], c[1], c[2], c[3], c[4]);
 
@@ -204,11 +285,38 @@ addBarrel(4, 14);
 addBarrel(-2.4, -10);
 addBarrel(34, -20);
 addBarrel(18, 24);
+addBarrel(30, 8);
+addBarrel(31.4, 9.3);
+addBarrel(-32, 12);
+addBarrel(0, -20);
+addBarrel(22, -12);
+addBarrel(-18, -6);
 
 /* --------------------------------------------------------------- 斜坡 */
 addRamp(33, 6, 38, 12, 1.2);
 addRamp(-38, 8, -33, 14, 1.2);
 addRamp(3, -6, 8, 0, 1.0);
+/* A 大通道入口坡道：给主通道一个入口高台 */
+addRamp(30, 18, 38, 24, 0.9);
+/* B 洞上坡 */
+addRamp(-38, 14, -32, 20, 0.9);
+
+/* --------------------------------------------------------------- 门框：区域之间的视觉地标
+   柱子尽量贴着通道两侧的墙，中间留出足够宽的通行口。 */
+addArch(32, 22, 14.0, 5.2, 'x');    // A 大通道北口
+addArch(2, 24, 13.0, 5.2, 'x');     // 中路北口
+addArch(-30, -26, 14.0, 4.8, 'x');  // B 洞南口
+addArch(-2, -26, 12.0, 5.0, 'x');   // CT 出生点北口
+addArch(16, -22, 10.0, 4.6, 'x');   // A 小道入口
+
+/* --------------------------------------------------------------- 石头（边缘遮挡） */
+const ROCKS = [
+  [-40, 40, 1.6, 1.1, true], [-34, 42, 1.1, 0.8, false], [40, 40, 1.5, 1.0, true],
+  [42, 34, 1.0, 0.7, false], [-42, -42, 1.4, 0.9, true], [40, -42, 1.3, 0.9, true],
+  [-8, 42, 1.2, 0.8, false], [16, 42, 1.5, 1.0, true], [-30, 38, 1.0, 0.7, false],
+  [42, -8, 1.1, 0.8, false], [-42, 4, 1.3, 0.9, true], [12, -42, 1.2, 0.8, false],
+];
+for (const r of ROCKS) addRock(r[0], r[1], r[2], r[3], r[4]);
 
 /* --------------------------------------------------------------- 生成合并网格 */
 function buildMerged() {
@@ -367,4 +475,18 @@ export const AREAS = [
   [-44, -44, -16, -26],  // B 包点
   [-16, -44, 10, -26],   // CT 出生点
   [-22, -6, -6, 4],      // B 通道
+  [-44, -6, -22, 4],     // B 通道北段（连接 B 洞与中路）
 ];
+
+/** 区域名称：小地图标注用 */
+export const AREA_NAMES = {
+  'T 出生点': [-40, 28, 44, 44],
+  '中路': [-6, -28, 10, 28],
+  'A 大通道': [24, -28, 40, 28],
+  'A 包点': [10, -44, 44, -28],
+  'A 小道': [10, -28, 24, -16],
+  'B 洞': [-40, -26, -22, 28],
+  'B 包点': [-44, -44, -16, -26],
+  'CT 出生点': [-16, -44, 10, -26],
+  'B 通道': [-22, -6, -6, 4],
+};
