@@ -7,15 +7,16 @@
 import { THREE } from './core/three.js';
 import { MAX_AMMO, RELOAD_TIME, FIRE_INTERVAL } from './core/config.js';
 import { G, player, keys, input, hooks } from './core/state.js';
-import { camera, scene, renderer, gunScene, gunCamera } from './world/scene.js';
+import { camera, scene, renderer, gunScene, gunCamera, getQualityLevel } from './world/scene.js';
 import { worldMeshes, groundHeightAt, resolveCollision, colliders } from './world/map.js';
 import {
-  spawnTracer, spawnImpact, spawnBlood, addBulletHole, updateEffects,
+  spawnTracer, spawnImpact, spawnBlood, addBulletHole, updateEffects, clearEffects,
 } from './world/effects.js';
+import { tuneQuality } from './world/scene.js';
 import { initAudio, playGunshot, playReload } from './world/audio.js';
 import { kickWeapon, resetWeapon, updateGunVisual } from './world/weapon.js';
 import { look, updatePlayer, syncCamera, updateRecoil, damagePlayer } from './entities/player.js';
-import { bots, spawnBots, clearBots, getBotHitMeshes } from './entities/bots.js';
+import { bots, spawnBots, clearBots, getBotHitMeshes, getBotVersion } from './entities/bots.js';
 import { updateHUD, drawMinimap, resetHUD, bindBotSource, showHitmarker } from './ui/hud.js';
 import { showGameUI, showPauseUI, hidePauseUI, showEndUI, showMenuUI } from './ui/screens.js';
 import { dom } from './ui/dom.js';
@@ -36,6 +37,20 @@ loadPrefs();
 const shootRay = new THREE.Raycaster();
 const tmpDir = new THREE.Vector3();
 const muzzleWorld = new THREE.Vector3();
+const tmpNormal = new THREE.Vector3();
+const tmpEnd = new THREE.Vector3();
+const tmpNormalMat = new THREE.Matrix3();
+
+/* 射击目标列表缓存：世界网格不变，只有敌人网格会增减，
+   用版本号避免每发子弹都重新 concat 数组。 */
+let shootTargets = [];
+let shootTargetsVersion = -1;
+function refreshShootTargets() {
+  const v = getBotVersion();
+  if (v === shootTargetsVersion) return;
+  shootTargetsVersion = v;
+  shootTargets = worldMeshes.concat(getBotHitMeshes());
+}
 
 function getMuzzleWorld() {
   return muzzleWorld
@@ -72,10 +87,10 @@ export function playerShoot() {
   shootRay.set(camera.position, tmpDir);
   shootRay.far = 240;
 
-  const targets = worldMeshes.concat(getBotHitMeshes());
-  const hits = shootRay.intersectObjects(targets, false);
+  refreshShootTargets();
+  const hits = shootRay.intersectObjects(shootTargets, false);
   const hit = hits.length ? hits[0] : null;
-  const muzzle = getMuzzleWorld().clone();
+  const muzzle = getMuzzleWorld();
 
   if (hit) {
     spawnTracer(muzzle, hit.point, 0xffe0a0, 0.07);
@@ -88,17 +103,19 @@ export function playerShoot() {
       bot.takeDamage(dmg);
       showHitmarker(part === 'head');
     } else {
-      const n = hit.face
-        ? hit.face.normal.clone()
-          .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld))
-          .normalize()
-        : new THREE.Vector3(0, 1, 0);
-      spawnImpact(hit.point, n);
+      if (hit.face) {
+        tmpNormal.copy(hit.face.normal)
+          .applyMatrix3(tmpNormalMat.getNormalMatrix(hit.object.matrixWorld))
+          .normalize();
+      } else {
+        tmpNormal.set(0, 1, 0);
+      }
+      spawnImpact(hit.point, tmpNormal);
       addBulletHole(hit);
     }
   } else {
-    const end = camera.position.clone().addScaledVector(tmpDir, 130);
-    spawnTracer(muzzle, end, 0xffe0a0, 0.07);
+    tmpEnd.copy(camera.position).addScaledVector(tmpDir, 130);
+    spawnTracer(muzzle, tmpEnd, 0xffe0a0, 0.07);
   }
 
   if (G.ammo <= 0) startReload();
@@ -152,6 +169,7 @@ function updateGame(dt) {
   for (const b of bots) b.update(dt);
   updateEffects(dt);
   updateRecoil(dt);
+  tuneQuality(dt);
 
   dom.crosshair.style.setProperty('--gap', (6 + G.bloom * 10 + player.moveAmt * 4).toFixed(1) + 'px');
   updateHUD();
@@ -204,6 +222,8 @@ export function startGame() {
 
   clearBots();
   spawnBots(prefs.botCount);
+  refreshShootTargets();
+  clearEffects();
   updateHUD();
   drawMinimap();
   syncCamera();
@@ -297,7 +317,7 @@ window.addEventListener('resize', () => {
   gunCamera.aspect = w / h;
   gunCamera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
 });
 
 /* --------------------------------------------------------------- 初始化 */
@@ -343,7 +363,9 @@ window.__dust = {
   resolveCollision,
   get bots() { return bots; },
   get colliders() { return colliders; },
-  get shootTargets() { return worldMeshes.concat(getBotHitMeshes()); },
+  get shootTargets() { return shootTargets; },
+  get quality() { return getQualityLevel(); },
+  renderer,
 };
 
 /* 初始视角：先贴着玩家，再用鸟瞰视角作为开始界面背景 */

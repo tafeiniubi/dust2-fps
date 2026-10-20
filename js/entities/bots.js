@@ -6,6 +6,11 @@
      attack  攻击：射程内且视线通畅时自动射击
      chase   追击：追向玩家最后出现的位置，丢失目标后回到 patrol
      dead    死亡：倒地动画，7 秒后从场景移除，击杀计入统计
+
+   性能要点：
+   - 敌人模型由 9 个 Mesh 合并为 2 个（躯干 / 头），draw call 大幅下降
+   - 材质在模块级共享，9 个敌人只用同一批材质
+   - 每帧的临时向量全部复用，射线检测零分配
    ========================================================================= */
 
 import { THREE } from '../core/three.js';
@@ -20,17 +25,82 @@ import { spawnTracer } from '../world/effects.js';
 import { playEnemyShot } from '../world/audio.js';
 import { damagePlayer } from './player.js';
 import { updateHUD, addKillFeed } from '../ui/hud.js';
+import { mergeGeometries, applyColor, scaleUv } from '../world/geom.js';
 
 export let bots = [];
 let botHitMeshes = [];
+let botVersion = 0;
 
 /** 当前所有可被命中的敌人网格（供射线检测拼接） */
 export function getBotHitMeshes() {
   return botHitMeshes;
 }
 
+/** 敌人可命中网格发生变化时递增，供外部缓存失效 */
+export function getBotVersion() {
+  return botVersion;
+}
+
 const losRay = new THREE.Raycaster();
 
+/* --------------------------------------------------------------- 共享资源
+   敌人模型是合并几何体，各部件颜色烘焙在顶点色里，
+   所以只用一张白色 + vertexColors 材质。 */
+const MAT_BODY = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
+
+/* 顶点色定义 */
+const C_VEST = 0x4c5240;   // 防弹背心
+const C_CLOTH = 0x6d5c40;  // 作战服
+const C_GEAR = 0x2b2b26;   // 腰带 / 头盔 / 枪
+const C_SKIN = 0xb98a63;   // 皮肤
+
+/**
+ * 敌人躯干（含腰带、双臂、枪）：把多个盒子合并成一个几何体。
+ * 腿需要单独摆动，所以腿部保留为两个小 Mesh（代价极小）。
+ */
+const BODY_GEO = (() => {
+  const parts = [];
+  const push = (w, h, d, color, x, y, z) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    applyColor(g, color);
+    parts.push(g);
+  };
+  push(0.66, 0.72, 0.4, C_VEST, 0, 1.32, 0);        // 背心
+  push(0.6, 0.3, 0.36, C_CLOTH, 0, 0.94, 0);        // 下身作战服
+  push(0.68, 0.24, 0.42, C_GEAR, 0, 1.06, 0);       // 腰带
+  push(0.16, 0.6, 0.16, C_CLOTH, 0.44, 1.56, 0.04); // 右臂
+  push(0.16, 0.6, 0.16, C_CLOTH, -0.44, 1.56, 0.04);// 左臂
+  push(0.14, 0.14, 0.14, C_SKIN, 0.44, 1.9, 0.04);  // 右手
+  push(0.14, 0.14, 0.14, C_SKIN, -0.44, 1.9, 0.04); // 左手
+  push(0.09, 0.12, 0.56, C_GEAR, 0.18, 1.46, 0.4);  // 枪
+  push(0.05, 0.05, 0.2, C_GEAR, 0.18, 1.46, 0.78);  // 枪管
+  push(0.14, 0.16, 0.1, C_GEAR, 0.18, 1.2, 0.3);    // 弹匣
+  push(0.26, 0.3, 0.1, C_GEAR, 0, 1.4, -0.26);      // 背包
+  return mergeGeometries(parts);
+})();
+
+const HEAD_GEO = (() => {
+  const parts = [];
+  const push = (w, h, d, color, x, y, z) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    applyColor(g, color);
+    parts.push(g);
+  };
+  push(0.34, 0.34, 0.34, C_SKIN, 0, 1.86, 0);   // 头
+  push(0.42, 0.16, 0.44, C_GEAR, 0, 2.05, 0);   // 头盔
+  push(0.4, 0.08, 0.1, C_GEAR, 0, 2.0, 0.22);   // 护目镜
+  return mergeGeometries(parts);
+})();
+
+const LEG_GEO = (() => {
+  const g = new THREE.BoxGeometry(0.24, 0.84, 0.28);
+  applyColor(g, C_CLOTH);
+  return g;
+})();
+
+/* --------------------------------------------------------------- 出生点 */
 const BOT_SPAWNS = [
   { name: 'A 区哨兵', x: 22, z: -36, wps: [[22, -36], [34, -34], [18, -30]] },
   { name: 'A 大通道', x: 31, z: 0, wps: [[31, 4], [31, -20]] },
@@ -49,6 +119,12 @@ const SPAWN_ORDER = {
   6: [0, 1, 2, 3, 4, 5],
   9: [0, 1, 2, 3, 4, 5, 6, 7, 8],
 };
+
+/* --------------------------------------------------------------- 复用向量 */
+const _from = new THREE.Vector3();
+const _to = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _end = new THREE.Vector3();
 
 class Bot {
   constructor(cfg) {
@@ -87,34 +163,32 @@ class Bot {
 
   _build() {
     const g = this.group;
-    const skin = new THREE.MeshLambertMaterial({ color: 0xb98a63 });
-    const cloth = new THREE.MeshLambertMaterial({ color: 0x5c4b36 });
-    const vest = new THREE.MeshLambertMaterial({ color: 0x474a3a });
-    const gear = new THREE.MeshLambertMaterial({ color: 0x24241f });
 
-    const part = (w, h, d, mat, x, y, z, kind) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-      m.position.set(x, y, z);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      m.userData.part = kind;
-      m.userData.bot = this;
-      g.add(m);
-      this.hitMeshes.push(m);
-      return m;
-    };
+    /* 躯干：合并网格，命中判定按整体算 body */
+    const body = new THREE.Mesh(BODY_GEO, MAT_BODY);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    body.userData.part = 'body';
+    body.userData.bot = this;
+    g.add(body);
+    this.hitMeshes.push(body);
 
-    part(0.72, 0.8, 0.42, vest, 0, 1.26, 0, 'body');     // 躯干
-    part(0.36, 0.36, 0.36, skin, 0, 1.86, 0, 'head');    // 头
-    part(0.44, 0.15, 0.46, gear, 0, 2.06, 0, 'head');    // 头盔
-    part(0.72, 0.26, 0.44, gear, 0, 1.0, 0, 'body');     // 腰带
+    /* 头 + 头盔：单独一个网格，爆头判定 */
+    const head = new THREE.Mesh(HEAD_GEO, MAT_BODY);
+    head.castShadow = true;
+    head.receiveShadow = true;
+    head.userData.part = 'head';
+    head.userData.bot = this;
+    g.add(head);
+    this.hitMeshes.push(head);
 
+    /* 腿：两个 pivot，负责走路摆动 */
     this.legs = [];
     for (const side of [-1, 1]) {
       const pivot = new THREE.Group();
       pivot.position.set(0.19 * side, 0.86, 0);
       g.add(pivot);
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.86, 0.3), cloth);
+      const m = new THREE.Mesh(LEG_GEO, MAT_BODY);
       m.position.y = -0.43;
       m.castShadow = true;
       m.userData.part = 'body';
@@ -124,29 +198,6 @@ class Bot {
       this.legs.push(pivot);
     }
 
-    for (const side of [-1, 1]) {
-      const pivot = new THREE.Group();
-      pivot.position.set(0.47 * side, 1.52, 0.02);
-      pivot.rotation.x = -1.05;
-      pivot.rotation.z = 0.18 * side;
-      g.add(pivot);
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.62, 0.17), cloth);
-      m.position.y = -0.3;
-      m.castShadow = true;
-      m.userData.part = 'body';
-      m.userData.bot = this;
-      pivot.add(m);
-      this.hitMeshes.push(m);
-    }
-
-    const gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.13, 0.6), gear);
-    gun.position.set(0.16, 1.4, 0.42);
-    gun.castShadow = true;
-    gun.userData.part = 'body';
-    gun.userData.bot = this;
-    g.add(gun);
-    this.hitMeshes.push(gun);
-
     /* 头顶血条 */
     this.hbCanvas = document.createElement('canvas');
     this.hbCanvas.width = 96;
@@ -155,8 +206,8 @@ class Bot {
     this.hbTex = new THREE.CanvasTexture(this.hbCanvas);
     this.hbTex.colorSpace = THREE.SRGBColorSpace;
     const bar = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.hbTex, transparent: true, depthTest: true }));
-    bar.scale.set(1.0, 0.125, 1);
-    bar.position.y = 2.4;
+    bar.scale.set(0.9, 0.115, 1);
+    bar.position.y = 2.32;
     bar.raycast = () => {};
     g.add(bar);
     this.healthSprite = bar;
@@ -190,11 +241,20 @@ class Bot {
     const ctx = this.hbCtx;
     const w = 96, h = 12;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(8,8,8,0.78)';
+    /* 外框 */
+    ctx.fillStyle = 'rgba(10,10,8,0.72)';
     ctx.fillRect(0, 0, w, h);
     const ratio = Math.max(0, this.hp / this.maxHp);
-    ctx.fillStyle = ratio > 0.55 ? '#7ed957' : ratio > 0.25 ? '#f2c14e' : '#e05a3a';
-    ctx.fillRect(1.5, 1.5, (w - 3) * ratio, h - 3);
+    /* 血条本体 */
+    ctx.fillStyle = ratio > 0.55 ? '#8fdc5e' : ratio > 0.25 ? '#f2c14e' : '#e05a3a';
+    ctx.fillRect(2, 2, (w - 4) * ratio, h - 4);
+    /* 分段刻度：即使被遮挡也能读出大致血量 */
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    for (let i = 1; i < 4; i++) ctx.fillRect((w / 4) * i - 1, 2, 2, h - 4);
+    /* 描边 */
+    ctx.strokeStyle = 'rgba(255,230,180,0.55)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, w - 2, h - 2);
     this.hbTex.needsUpdate = true;
   }
 
@@ -326,13 +386,13 @@ class Bot {
     const nx = (pp.x - p.x) / dist, nz = (pp.z - p.z) / dist;
     if (fx * nx + fz * nz < 0.1 && dist > 5) return false;
 
-    const from = new THREE.Vector3(p.x, 1.62, p.z);
-    const to = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z);
-    const dir = to.clone().sub(from);
-    const d = dir.length();
+    _from.set(p.x, 1.62, p.z);
+    _to.set(camera.position.x, camera.position.y, camera.position.z);
+    _dir.copy(_to).sub(_from);
+    const d = _dir.length();
     if (d < 0.3) return true;
-    dir.divideScalar(d);
-    losRay.set(from, dir);
+    _dir.divideScalar(d);
+    losRay.set(_from, _dir);
     losRay.far = d - 0.3;
     return losRay.intersectObjects(worldMeshes, false).length === 0;
   }
@@ -343,12 +403,13 @@ class Bot {
     const f = this.diff.fire;
     this.fireTimer = f[0] + Math.random() * (f[1] - f[0]);
 
-    const from = new THREE.Vector3(this.group.position.x, 1.45, this.group.position.z);
-    const to = camera.position.clone();
-    to.x += (Math.random() - 0.5) * 0.5;
-    to.y += (Math.random() - 0.5) * 0.4;
-    to.z += (Math.random() - 0.5) * 0.5;
-    spawnTracer(from, to, 0xffc46a, 0.06);
+    _from.set(this.group.position.x, 1.45, this.group.position.z);
+    _to.set(
+      camera.position.x + (Math.random() - 0.5) * 0.5,
+      camera.position.y + (Math.random() - 0.5) * 0.4,
+      camera.position.z + (Math.random() - 0.5) * 0.5
+    );
+    spawnTracer(_from, _to, 0xffc46a, 0.06);
     playEnemyShot();
 
     const chance = THREE.MathUtils.clamp(this.diff.accuracy - dist * this.diff.falloff, 0.12, 0.92);
@@ -378,7 +439,12 @@ class Bot {
     this.healthSprite.visible = false;
     this.alertSprite.visible = false;
     this.hitMeshes.forEach((m) => { m.userData.bot = null; });
-    botHitMeshes = botHitMeshes.filter((m) => !this.hitMeshes.includes(m));
+    /* 就地移除，保持数组引用稳定（射击目标列表会被缓存复用） */
+    for (const m of this.hitMeshes) {
+      const i = botHitMeshes.indexOf(m);
+      if (i >= 0) botHitMeshes.splice(i, 1);
+    }
+    botVersion++;
     G.kills++;
     addKillFeed(this.name);
     updateHUD();
@@ -409,10 +475,12 @@ export function spawnBots(count = 6) {
   const order = SPAWN_ORDER[count] || SPAWN_ORDER[6];
   bots = order.map((idx, i) => new Bot({ ...BOT_SPAWNS[idx], id: i }));
   botHitMeshes = bots.flatMap((b) => b.hitMeshes);
+  botVersion++;
 }
 
 export function clearBots() {
   for (const b of bots) scene.remove(b.group);
   bots = [];
   botHitMeshes = [];
+  botVersion++;
 }

@@ -6,15 +6,25 @@
      T 出生点 → 中路 / A 大通道 → A 包点、A 小道
      B 洞 → B 包点 → CT 出生点 → 中路
    墙体、木箱、矮墙全部登记为 AABB 碰撞体；斜坡用高度场处理。
+   静态几何全部合并为少数几个网格，把 draw call 压到最低。
    ========================================================================= */
 
 import { THREE } from '../core/three.js';
 import { scene } from './scene.js';
-import { MAT, crateEdgeMat } from './textures.js';
+import { MAT, TILE } from './textures.js';
+import { boxAt, mergeGeometries, scaleUv, applyColor } from './geom.js';
 
 export const colliders = [];
 export const worldMeshes = [];
 export const ramps = [];
+
+/* 合并用的几何体收集器：按材质分组，最后统一生成网格 */
+const buckets = new Map();
+
+function bucket(mat) {
+  if (!buckets.has(mat)) buckets.set(mat, []);
+  return buckets.get(mat);
+}
 
 /** 登记一个轴对齐碰撞体 */
 function addCollider(x1, z1, x2, z2, minY, maxY) {
@@ -25,38 +35,74 @@ function addCollider(x1, z1, x2, z2, minY, maxY) {
   });
 }
 
-/** 一座建筑：盒子 + 顶部压边，同时产生碰撞 */
-function addBuilding(x1, z1, x2, z2, h, mat) {
+/**
+ * 一座建筑：主体 + 顶部压边，同时产生碰撞。
+ * 几何体进入合并桶，不单独生成 Mesh。
+ */
+function addBuilding(x1, z1, x2, z2, h, mat, color, opts) {
   const w = x2 - x1, d = z2 - z1;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  mesh.position.set(x1 + w / 2, h / 2, z1 + d / 2);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  worldMeshes.push(mesh);
-  addCollider(x1, z1, x2, z2, 0, h);
+  const cx = x1 + w / 2, cz = z1 + d / 2;
 
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.4, 0.32, d + 0.4), MAT.trim);
-  cap.position.set(mesh.position.x, h + 0.16, mesh.position.z);
-  cap.castShadow = true;
-  cap.receiveShadow = true;
-  scene.add(cap);
-  worldMeshes.push(cap);
-  return mesh;
+  const body = new THREE.BoxGeometry(w, h, d);
+  scaleUv(body, w / TILE.wall, h / TILE.wall);
+  body.translate(cx, h / 2, cz);
+  applyColor(body, color);
+  bucket(mat).push(body);
+
+  /* 顶部压边（比主体略大，做出檐口） */
+  const cap = new THREE.BoxGeometry(w + 0.4, 0.32, d + 0.4);
+  scaleUv(cap, (w + 0.4) / TILE.wall, 0.4 / TILE.wall);
+  cap.translate(cx, h + 0.16, cz);
+  applyColor(cap, 0xb59a6c);
+  bucket(MAT.trim).push(cap);
+
+  /* 底部基座：略深一圈，视觉上把墙"压"在地面上 */
+  const base = new THREE.BoxGeometry(w + 0.24, 0.9, d + 0.24);
+  scaleUv(base, (w + 0.24) / TILE.wall, 0.9 / TILE.wall);
+  base.translate(cx, 0.45, cz);
+  applyColor(base, 0x8a7248);
+  bucket(MAT.trim).push(base);
+
+  addCollider(x1, z1, x2, z2, 0, h);
+  return { cx, cz, w, d, h };
 }
 
 /** 一个木箱（可堆叠） */
 function addCrate(cx, cz, size, h, y0) {
   y0 = y0 || 0;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, h, size), MAT.crate);
-  mesh.position.set(cx, y0 + h / 2, cz);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), crateEdgeMat);
-  mesh.add(edges);
-  scene.add(mesh);
-  worldMeshes.push(mesh);
+  const g = new THREE.BoxGeometry(size, h, size);
+  scaleUv(g, size / TILE.crate, h / TILE.crate);
+  g.translate(cx, y0 + h / 2, cz);
+  applyColor(g, 0xffffff);
+  bucket(MAT.crate).push(g);
   addCollider(cx - size / 2, cz - size / 2, cx + size / 2, cz + size / 2, y0, y0 + h);
+}
+
+/** 金属油桶：可作掩体，比木箱更矮 */
+function addBarrel(cx, cz, y0) {
+  y0 = y0 || 0;
+  const r = 0.46, h = 1.24;
+  const g = new THREE.CylinderGeometry(r, r, h, 14, 1);
+  scaleUv(g, 1, 1);
+  g.translate(cx, y0 + h / 2, cz);
+  applyColor(g, 0xffffff);
+  bucket(MAT.metal).push(g);
+  addCollider(cx - r, cz - r, cx + r, cz + r, y0, y0 + h);
+}
+
+/** 沙袋掩体：矮而宽，可蹲下躲蔽 */
+function addSandbags(cx, cz, len, ry) {
+  ry = ry || 0;
+  const h = 1.05;
+  const g = new THREE.BoxGeometry(len, h, 0.85);
+  scaleUv(g, len / TILE.sack, h / TILE.sack);
+  g.rotateY(ry);
+  g.translate(cx, h / 2, cz);
+  applyColor(g, 0xffffff);
+  bucket(MAT.sack).push(g);
+  const hw = Math.abs(Math.cos(ry)) * len / 2 + Math.abs(Math.sin(ry)) * 0.43;
+  const hd = Math.abs(Math.sin(ry)) * len / 2 + Math.abs(Math.cos(ry)) * 0.43;
+  addCollider(cx - hw, cz - hd, cx + hw, cz + hd, 0, h);
 }
 
 /** 斜坡：北侧（z1）高、南侧（z2）低 */
@@ -72,53 +118,70 @@ function addRamp(x1, z1, x2, z2, h) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, MAT.ramp);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  worldMeshes.push(mesh);
+  const uv = new Float32Array((pos.length / 3) * 2);
+  for (let i = 0; i < pos.length / 3; i++) {
+    uv[i * 2] = (pos[i * 3] - x1) / TILE.ground;
+    uv[i * 2 + 1] = (pos[i * 3 + 2] - z1) / TILE.ground;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  applyColor(geo, 0xffffff);
+  bucket(MAT.ramp).push(geo);
 }
 
 /* --------------------------------------------------------------- 地面 */
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), MAT.ground);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
-worldMeshes.push(ground);
+{
+  const g = new THREE.PlaneGeometry(150, 150, 1, 1);
+  scaleUv(g, 150 / TILE.ground, 150 / TILE.ground);
+  g.rotateX(-Math.PI / 2);
+  applyColor(g, 0xffffff);
+  const ground = new THREE.Mesh(g, MAT.ground);
+  ground.receiveShadow = true;
+  ground.name = 'ground';
+  scene.add(ground);
+  worldMeshes.push(ground);
+}
 
 /* --------------------------------------------------------------- 外围城墙（内墙面在 ±44） */
-addBuilding(-46, -46, 46, -44, 8.4, MAT.building2);
-addBuilding(-46, 44, 46, 46, 8.4, MAT.building2);
-addBuilding(-46, -46, -44, 46, 8.4, MAT.building2);
-addBuilding(44, -46, 46, 46, 8.4, MAT.building2);
+addBuilding(-46, -46, 46, -44, 8.4, MAT.wall, 0xf2e2c4);
+addBuilding(-46, 44, 46, 46, 8.4, MAT.wall, 0xf2e2c4);
+addBuilding(-46, -46, -44, 46, 8.4, MAT.wall, 0xf2e2c4);
+addBuilding(44, -46, 46, 46, 8.4, MAT.wall, 0xf2e2c4);
 
 /* --------------------------------------------------------------- 区域隔墙 */
 // A 大通道西墙、A 小道两侧
-addBuilding(10, -16, 24, 2, 6.6, MAT.building);
-addBuilding(10, 2, 24, 16, 7.8, MAT.building2);
-addBuilding(10, 16, 24, 28, 6.2, MAT.building);
+addBuilding(10, -16, 24, 2, 6.6, MAT.wall, 0xffffff);
+addBuilding(10, 2, 24, 16, 7.8, MAT.wallAlt, 0xffffff);
+addBuilding(10, 16, 24, 28, 6.2, MAT.wall, 0xffffff);
 
 // 中路西侧（T 出生点与中路之间）
-addBuilding(-22, 4, -6, 16, 6.6, MAT.building2);
-addBuilding(-22, 16, -6, 28, 7.6, MAT.building);
+addBuilding(-22, 4, -6, 16, 6.6, MAT.wallAlt, 0xffffff);
+addBuilding(-22, 16, -6, 28, 7.6, MAT.wall, 0xffffff);
 
 // 中路南段与 B 通道之间
-addBuilding(-22, -26, -6, -16, 8.0, MAT.building);
-addBuilding(-22, -16, -6, -6, 6.4, MAT.building2);
+addBuilding(-22, -26, -6, -16, 8.0, MAT.wall, 0xffffff);
+addBuilding(-22, -16, -6, -6, 6.4, MAT.wallAlt, 0xffffff);
 
 // B 洞西侧
-addBuilding(-44, -26, -40, 8, 7.0, MAT.building);
-addBuilding(-44, 8, -40, 44, 6.2, MAT.building2);
+addBuilding(-44, -26, -40, 8, 7.0, MAT.wall, 0xffffff);
+addBuilding(-44, 8, -40, 44, 6.2, MAT.wallAlt, 0xffffff);
 
 // A 大通道东侧
-addBuilding(40, -28, 44, 0, 7.4, MAT.building);
-addBuilding(40, 0, 44, 28, 6.4, MAT.building2);
+addBuilding(40, -28, 44, 0, 7.4, MAT.wall, 0xffffff);
+addBuilding(40, 0, 44, 28, 6.4, MAT.wallAlt, 0xffffff);
 
 /* --------------------------------------------------------------- 掩体：矮墙 / 沙袋 */
-addBuilding(16, -33, 24, -32, 1.1, MAT.lowCover);
-addBuilding(-32, -38, -24, -37, 1.1, MAT.lowCover);
-addBuilding(4, 10, 9, 11, 1.05, MAT.lowCover);
-addBuilding(-40, 22, -34, 23, 1.1, MAT.lowCover);
+addBuilding(16, -33, 24, -32, 1.1, MAT.wall, 0x9c8256);
+addBuilding(-32, -38, -24, -37, 1.1, MAT.wall, 0x9c8256);
+addBuilding(4, 10, 9, 11, 1.05, MAT.wall, 0x9c8256);
+addBuilding(-40, 22, -34, 23, 1.1, MAT.wall, 0x9c8256);
+
+/* 沙袋：给 A 包点和 B 包点增加层次 */
+addSandbags(20, -30, 3.2, 0);
+addSandbags(30, -36, 2.6, Math.PI / 2);
+addSandbags(-24, -36, 3.0, 0);
+addSandbags(-34, -30, 2.6, Math.PI / 2);
+addSandbags(0, 6, 2.8, Math.PI / 2);
+addSandbags(-8, -12, 2.8, 0);
 
 /* --------------------------------------------------------------- 掩体：木箱（部分堆叠） */
 const CRATES = [
@@ -133,10 +196,111 @@ const CRATES = [
 ];
 for (const c of CRATES) addCrate(c[0], c[1], c[2], c[3], c[4]);
 
+/* --------------------------------------------------------------- 油桶 */
+addBarrel(24, -34);
+addBarrel(25.3, -32.6);
+addBarrel(-26, -30);
+addBarrel(4, 14);
+addBarrel(-2.4, -10);
+addBarrel(34, -20);
+addBarrel(18, 24);
+
 /* --------------------------------------------------------------- 斜坡 */
 addRamp(33, 6, 38, 12, 1.2);
 addRamp(-38, 8, -33, 14, 1.2);
 addRamp(3, -6, 8, 0, 1.0);
+
+/* --------------------------------------------------------------- 生成合并网格 */
+function buildMerged() {
+  for (const [mat, geoms] of buckets) {
+    if (!geoms.length) continue;
+    const merged = mergeGeometries(geoms);
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = 'static-' + (mat.name || 'batch');
+    scene.add(mesh);
+    worldMeshes.push(mesh);
+    for (const g of geoms) g.dispose();
+  }
+  buckets.clear();
+}
+buildMerged();
+
+/* --------------------------------------------------------------- 场景装饰（非碰撞） */
+function addDecoration() {
+  /* 远景山丘：给地平线一点起伏，避免天空与地面直接相接的呆板感 */
+  const hillGeos = [];
+  const hills = [
+    [-70, -78, 26, 9], [-18, -92, 34, 12], [46, -74, 30, 10],
+    [82, -30, 26, 8], [-88, 14, 30, 10], [24, 86, 28, 9], [-40, 88, 32, 11],
+  ];
+  for (const [x, z, r, h] of hills) {
+    const g = new THREE.ConeGeometry(r, h, 7, 1);
+    g.translate(x, h / 2 - 1, z);
+    applyColor(g, 0xb59a72);
+    hillGeos.push(g);
+  }
+  const hills2 = [];
+  for (const [x, z, r, h] of hills) {
+    const g = new THREE.ConeGeometry(r * 0.72, h * 0.7, 6, 1);
+    g.translate(x + r * 0.4, h * 0.35 - 1, z - r * 0.3);
+    applyColor(g, 0xc4ab84);
+    hills2.push(g);
+  }
+  const hillMesh = new THREE.Mesh(mergeGeometries(hillGeos.concat(hills2)), MAT.hill);
+  hillMesh.name = 'hills';
+  scene.add(hillMesh);
+
+  /* 棕榈树：给 A 大通道和 T 出生点加热带感 */
+  const trunkGeos = [];
+  const leafGeos = [];
+  const palms = [
+    [36, 22], [28, 26], [40, -8], [-36, 36], [-20, 42], [14, 34],
+    [-40, -20], [2, -38], [40, 38], [-8, -40], [22, -40], [-30, -44],
+  ];
+  for (const [x, z] of palms) {
+    const h = 3.6 + Math.random() * 2.2;
+    const t = new THREE.CylinderGeometry(0.13, 0.22, h, 6, 1);
+    t.translate(x, h / 2, z);
+    applyColor(t, 0x8a6a44);
+    trunkGeos.push(t);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.random() * 0.4;
+      const leaf = new THREE.ConeGeometry(0.42, 2.3, 4, 1);
+      leaf.rotateZ(Math.PI * 0.5 - 0.5);
+      leaf.rotateY(a);
+      leaf.translate(x + Math.cos(a) * 0.85, h - 0.15, z + Math.sin(a) * 0.85);
+      applyColor(leaf, i % 2 ? 0x4e6b35 : 0x5f7d40);
+      leafGeos.push(leaf);
+    }
+  }
+  const palmTrunks = new THREE.Mesh(mergeGeometries(trunkGeos), MAT.trim);
+  palmTrunks.name = 'palm-trunks';
+  scene.add(palmTrunks);
+  const palmLeaves = new THREE.Mesh(mergeGeometries(leafGeos), MAT.leaf);
+  palmLeaves.name = 'palm-leaves';
+  scene.add(palmLeaves);
+
+  /* 桶阵与集装箱，增加掩体层次 */
+  const deco = [];
+  const containers = [
+    [-30, 40, 4.2, 2.4, 2.6], [30, -44, 3.4, 2.4, 2.6], [-42, 30, 3.0, 2.4, 2.6],
+  ];
+  for (const [x, z, w, h, d] of containers) {
+    const g = new THREE.BoxGeometry(w, h, d);
+    scaleUv(g, w / 3, h / 3);
+    g.translate(x, h / 2, z);
+    applyColor(g, 0x8a6a4a);
+    deco.push(g);
+  }
+  const decoMesh = new THREE.Mesh(mergeGeometries(deco), MAT.crate);
+  decoMesh.name = 'containers';
+  decoMesh.castShadow = true;
+  decoMesh.receiveShadow = true;
+  scene.add(decoMesh);
+}
+addDecoration();
 
 /* --------------------------------------------------------------- 地形查询 */
 /**
