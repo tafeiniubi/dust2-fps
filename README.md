@@ -108,3 +108,7 @@ python server.py 3000
 - 游戏首次打开需要联网从 CDN 加载 Three.js（unpkg，失败会自动尝试 jsdelivr / esm.sh）。
 - 建议使用 Chrome / Edge / Firefox 最新版，窗口尺寸 1280×720 以上。
 - 在地址后加 `?auto=1` 可跳过开始界面直接进入游戏（便于截图或演示）。
+<br><br><br><br><br>
+![DeepSeekLogo](deepseek-2.png)
+<br><br><br>
+![EdgeOneLogo](EdgeOneLogo.png)
