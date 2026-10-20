@@ -48,7 +48,26 @@
     <div class="eyebrow">TACTICAL OPERATION · DUST II</div>
     <h1>DUST<span>STRIKE</span></h1>
     <p class="subtitle">反恐精英风格 · de_dust2 简化版 · 3D FPS</p>
-    <p class="brief">沙漠二号。六名恐怖分子已分散占据 A 大通道、A 包点、B 洞、B 包点、中路与 CT 出生点。穿过走廊与包点，清除全部目标。</p>
+    <p class="brief" id="startBrief">沙漠二号。六名恐怖分子已分散占据 A 大通道、A 包点、B 洞、B 包点、中路与 CT 出生点。穿过走廊与包点，清除全部目标。</p>
+    <div class="setupRow">
+      <div class="setupGroup">
+        <div class="setupLabel">难 度</div>
+        <div class="segGroup" id="diffGroup">
+          <button type="button" class="segBtn" data-diff="easy">简单</button>
+          <button type="button" class="segBtn active" data-diff="normal">普通</button>
+          <button type="button" class="segBtn" data-diff="hard">困难</button>
+        </div>
+      </div>
+      <div class="setupGroup">
+        <div class="setupLabel">敌 人 数 量</div>
+        <div class="segGroup" id="countGroup">
+          <button type="button" class="segBtn" data-count="3">3</button>
+          <button type="button" class="segBtn active" data-count="6">6</button>
+          <button type="button" class="segBtn" data-count="9">9</button>
+        </div>
+      </div>
+    </div>
+    <p class="setupHint" id="setupHint">普通 · 标准交火手感 · 6 名敌人</p>
     <div class="ctrlGrid">
       <div class="ctrl"><kbd data-bind="forward">W</kbd><kbd data-bind="left">A</kbd><kbd data-bind="back">S</kbd><kbd data-bind="right">D</kbd><span>移动</span></div>
       <div class="ctrl"><kbd>鼠标左键</kbd><span>射击 / 拖动转向</span></div>

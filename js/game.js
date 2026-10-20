@@ -21,13 +21,16 @@ import { showGameUI, showPauseUI, hidePauseUI, showEndUI, showMenuUI } from './u
 import { dom } from './ui/dom.js';
 import { bindInput, releasePointerLock } from './core/input.js';
 import { bindings, loadBindings } from './core/bindings.js';
+import { prefs, loadPrefs } from './core/prefs.js';
 import { initKeySettings, hideKeySettings, isKeySettingsOpen } from './ui/settings.js';
+import { initSetupUI } from './ui/setup.js';
 
 /* HUD 需要敌人列表，这里注入，避免 ui → entities 的循环依赖 */
 bindBotSource(() => bots);
 
-/* 先恢复玩家上次保存的键位，再让输入层和设置面板开始工作 */
+/* 先恢复玩家上次保存的键位与开局偏好，再让输入层和设置面板开始工作 */
 loadBindings();
+loadPrefs();
 
 /* --------------------------------------------------------------- 射击 */
 const shootRay = new THREE.Raycaster();
@@ -200,7 +203,7 @@ export function startGame() {
   resetWeapon();
 
   clearBots();
-  spawnBots();
+  spawnBots(prefs.botCount);
   updateHUD();
   drawMinimap();
   syncCamera();
@@ -310,6 +313,7 @@ bindInput({
 });
 
 initKeySettings();
+initSetupUI();
 
 dom.startBtn.addEventListener('click', () => startGame());
 dom.restartBtn.addEventListener('click', () => startGame());
@@ -330,6 +334,7 @@ window.__dust = {
   camera,
   keys,
   bindings,
+  prefs,
   look,
   playerShoot,
   damagePlayer,

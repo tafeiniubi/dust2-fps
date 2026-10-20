@@ -20,6 +20,10 @@ export const dom = {
   quitBtn: $('quitBtn'),
 
   menuBtns: document.querySelector('#pauseScreen .menuBtns'),
+  startBrief: $('startBrief'),
+  diffGroup: $('diffGroup'),
+  countGroup: $('countGroup'),
+  setupHint: $('setupHint'),
   settingsBtn: $('settingsBtn'),
   keySettings: $('keySettings'),
   keyRows: $('keyRows'),

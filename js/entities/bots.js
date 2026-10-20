@@ -14,6 +14,7 @@ import {
   BOT_PATROL_SPEED, BOT_CHASE_SPEED, BOT_ATTACK_RANGE, BOT_MAX_HP,
 } from '../core/config.js';
 import { G, player } from '../core/state.js';
+import { currentDifficulty } from '../core/prefs.js';
 import { groundHeightAt, resolveCollision, worldMeshes } from '../world/map.js';
 import { spawnTracer } from '../world/effects.js';
 import { playEnemyShot } from '../world/audio.js';
@@ -37,7 +38,17 @@ const BOT_SPAWNS = [
   { name: 'B 区哨兵', x: -30, z: -34, wps: [[-30, -34], [-40, -40], [-22, -30]] },
   { name: 'B 洞巡逻', x: -31, z: 18, wps: [[-31, 22], [-31, -14]] },
   { name: 'CT 出生点', x: -4, z: -32, wps: [[-4, -30], [4, -36], [-12, -34]] },
+  { name: 'A 小增援', x: 18, z: -22, wps: [[18, -22], [12, -26]] },
+  { name: '中门增援', x: 6, z: 18, wps: [[6, 18], [6, 6]] },
+  { name: 'B 连接增援', x: -24, z: -12, wps: [[-24, -12], [-30, -20]] },
 ];
+
+/* 不同人数下出场的出生点，保证 3 人时 A / 中路 / B 都有覆盖 */
+const SPAWN_ORDER = {
+  3: [0, 2, 4],
+  6: [0, 1, 2, 3, 4, 5],
+  9: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+};
 
 class Bot {
   constructor(cfg) {
@@ -54,7 +65,8 @@ class Bot {
     this.losTimer = Math.random() * 0.2;
     this.alertTimer = 0;
     this.alertFlash = 0;
-    this.fireTimer = 1 + Math.random();
+    this.diff = currentDifficulty();
+    this.fireTimer = 1 + Math.random() * this.diff.fire[1];
     this.speedNow = 0;
     this.walkPhase = Math.random() * 6;
     this.stuck = 0;
@@ -211,7 +223,7 @@ class Bot {
       case 'patrol':
         if (this.canSee) {
           this.state = 'alert';
-          this.alertTimer = 0.45;
+          this.alertTimer = this.diff.alert;
           this.alertFlash = 0.85;
         } else {
           this._patrol(dt);
@@ -240,7 +252,7 @@ class Bot {
         } else if (lost > 6 || (!this.canSee && dist < 1.9)) {
           this.state = 'patrol';
         } else {
-          this._moveTo(this.lastKnown, dt, BOT_CHASE_SPEED);
+          this._moveTo(this.lastKnown, dt, BOT_CHASE_SPEED * this.diff.speed);
         }
         break;
     }
@@ -259,7 +271,7 @@ class Bot {
       if (this.wpIndex >= this.wps.length - 1) { this.wpIndex = this.wps.length - 1; this.wpDir = -1; }
       else if (this.wpIndex <= 0) { this.wpIndex = 0; this.wpDir = 1; }
     } else {
-      this._moveTo(wp, dt, BOT_PATROL_SPEED);
+      this._moveTo(wp, dt, BOT_PATROL_SPEED * this.diff.speed);
     }
   }
 
@@ -308,7 +320,7 @@ class Bot {
 
   /** 距离 + 视野角 + 射线遮挡三重判定 */
   _checkSight(pp, dist) {
-    if (dist > 38) return false;
+    if (dist > this.diff.sight) return false;
     const p = this.group.position;
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     const nx = (pp.x - p.x) / dist, nz = (pp.z - p.z) / dist;
@@ -328,7 +340,8 @@ class Bot {
   _tryShoot(dt, dist) {
     this.fireTimer -= dt;
     if (this.fireTimer > 0) return;
-    this.fireTimer = 0.95 + Math.random() * 0.7;
+    const f = this.diff.fire;
+    this.fireTimer = f[0] + Math.random() * (f[1] - f[0]);
 
     const from = new THREE.Vector3(this.group.position.x, 1.45, this.group.position.z);
     const to = camera.position.clone();
@@ -338,8 +351,8 @@ class Bot {
     spawnTracer(from, to, 0xffc46a, 0.06);
     playEnemyShot();
 
-    const chance = THREE.MathUtils.clamp(0.62 - dist * 0.012, 0.16, 0.62);
-    if (Math.random() < chance) damagePlayer(6 + Math.random() * 7);
+    const chance = THREE.MathUtils.clamp(this.diff.accuracy - dist * this.diff.falloff, 0.12, 0.92);
+    if (Math.random() < chance) damagePlayer((6 + Math.random() * 7) * this.diff.damageMul);
   }
 
   takeDamage(amount) {
@@ -392,8 +405,9 @@ class Bot {
   }
 }
 
-export function spawnBots() {
-  bots = BOT_SPAWNS.map((cfg, i) => new Bot({ ...cfg, id: i }));
+export function spawnBots(count = 6) {
+  const order = SPAWN_ORDER[count] || SPAWN_ORDER[6];
+  bots = order.map((idx, i) => new Bot({ ...BOT_SPAWNS[idx], id: i }));
   botHitMeshes = bots.flatMap((b) => b.hitMeshes);
 }
 
