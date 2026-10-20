@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0a08">
+<title>DUST STRIKE · 反恐精英风格 3D FPS</title>
+<link rel="stylesheet" href="./css/game.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="topLeft">
+    <div id="minimapBox"><canvas id="minimap" width="176" height="176"></canvas><span class="mmTag">DUST II</span></div>
+  </div>
+  <div id="topCenter">
+    <div class="objLabel">任务目标</div>
+    <div class="objText">消灭全部恐怖分子 · 剩余 <b id="remaining">6</b></div>
+  </div>
+  <div id="topRight">
+    <div id="killCount">0</div>
+    <div class="statCap">击杀</div>
+  </div>
+
+  <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
+  <div id="hitmarker">✕</div>
+  <div id="killfeed"></div>
+
+  <div id="bottomLeft">
+    <div class="hpRow"><span class="hpIcon">✚</span><span id="hpNum">100</span><span class="hpCap">HP</span></div>
+    <div id="hpBarWrap"><div id="hpBar"></div></div>
+    <div class="label">VITAL SIGNS</div>
+  </div>
+
+  <div id="bottomRight">
+    <div class="ammoRow"><span id="ammoNum">30</span><span class="ammoSep">/</span><span class="ammoInf">∞</span></div>
+    <div class="ammoCap">M4A1 · 5.56MM</div>
+  </div>
+
+  <div id="hintBar">WASD 移动 · 左键拖动转向 / 射击 · 空格跳跃 · Shift 静步 · C 蹲下 · R 换弹 · L 锁定鼠标</div>
+  <div id="vignette"></div>
+  <div id="flash"></div>
+</div>
+
+<div id="startScreen" class="screen">
+  <div class="panelBox">
+    <div class="eyebrow">TACTICAL OPERATION · DUST II</div>
+    <h1>DUST<span>STRIKE</span></h1>
+    <p class="subtitle">反恐精英风格 · de_dust2 简化版 · 3D FPS</p>
+    <p class="brief">沙漠二号。六名恐怖分子已分散占据 A 大通道、A 包点、B 洞、B 包点、中路与 CT 出生点。穿过走廊与包点，清除全部目标。</p>
+    <div class="ctrlGrid">
+      <div class="ctrl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>移动</span></div>
+      <div class="ctrl"><kbd>鼠标左键</kbd><span>射击 / 拖动转向</span></div>
+      <div class="ctrl"><kbd>鼠标右键</kbd><span>拖动转向</span></div>
+      <div class="ctrl"><kbd>Space</kbd><span>跳跃</span></div>
+      <div class="ctrl"><kbd>Shift</kbd><span>静步</span></div>
+      <div class="ctrl"><kbd>C</kbd><span>蹲下</span></div>
+      <div class="ctrl"><kbd>R</kbd><span>换弹</span></div>
+      <div class="ctrl"><kbd>L</kbd><span>锁定鼠标</span></div>
+      <div class="ctrl"><kbd>Esc</kbd><span>暂停</span></div>
+    </div>
+    <button id="startBtn" class="bigBtn">进 入 战 场</button>
+    <p class="footNote">Three.js 通过官方 CDN 加载，首次进入需要网络连接。提示：按住左键拖动可以边转向边射击。</p>
+  </div>
+</div>
+
+<div id="pauseScreen" class="screen hidden">
+  <div class="panelBox small">
+    <div class="eyebrow">OPERATION PAUSED</div>
+    <h2>已暂停</h2>
+    <p class="brief">按 Esc 或点击下方按钮继续战斗。</p>
+    <div class="menuBtns">
+      <button id="resumeBtn" class="bigBtn">继 续 战 斗</button>
+      <button id="restartPauseBtn" class="ghostBtn">重 新 开 始</button>
+      <button id="quitBtn" class="ghostBtn danger">退 出 游 戏</button>
+    </div>
+    <p class="footNote">退出游戏会返回主菜单，当前进度不会保留。</p>
+  </div>
+</div>
+
+<div id="endScreen" class="screen hidden">
+  <div class="panelBox">
+    <div class="eyebrow" id="endEyebrow">MISSION COMPLETE</div>
+    <h2 id="endTitle">任务完成</h2>
+    <p class="brief" id="endDesc"></p>
+    <div class="statRow">
+      <div><b id="endKills">0</b><span>击杀</span></div>
+      <div><b id="endTime">0:00</b><span>用时</span></div>
+      <div><b id="endAccuracy">0%</b><span>命中率</span></div>
+    </div>
+    <button id="restartBtn" class="bigBtn">再 来 一 局</button>
+  </div>
+</div>
+
+<div id="loading"><div class="spinner"></div><p>正在加载 Three.js 引擎…</p></div>
+<noscript><p style="position:fixed;inset:0;display:grid;place-items:center;background:#000;">请启用 JavaScript 后重试。</p></noscript>
+
+<script type="module" src="./js/game.js"></script>
+</body>
+</html>
