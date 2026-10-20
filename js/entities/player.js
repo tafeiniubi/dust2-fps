@@ -9,6 +9,7 @@ import {
   GRAVITY, JUMP_SPEED, LOOK_SENS, MAP_LIMIT,
 } from '../core/config.js';
 import { G, player, keys, input, hooks } from '../core/state.js';
+import { bindings, isDown } from '../core/bindings.js';
 import { groundHeightAt, resolveCollision } from '../world/map.js';
 import { updateHUD } from '../ui/hud.js';
 import { playHurt } from '../world/audio.js';
@@ -32,16 +33,17 @@ export function updatePlayer(dt) {
   const rightX = Math.cos(G.yaw), rightZ = -Math.sin(G.yaw);
 
   let wx = 0, wz = 0;
-  if (keys['KeyW'] || keys['ArrowUp']) { wx += forwardX; wz += forwardZ; }
-  if (keys['KeyS'] || keys['ArrowDown']) { wx -= forwardX; wz -= forwardZ; }
-  if (keys['KeyD'] || keys['ArrowRight']) { wx += rightX; wz += rightZ; }
-  if (keys['KeyA'] || keys['ArrowLeft']) { wx -= rightX; wz -= rightZ; }
+  if (isDown('forward')) { wx += forwardX; wz += forwardZ; }
+  if (isDown('back')) { wx -= forwardX; wz -= forwardZ; }
+  if (isDown('right')) { wx += rightX; wz += rightZ; }
+  if (isDown('left')) { wx -= rightX; wz -= rightZ; }
   const len = Math.hypot(wx, wz);
   if (len > 0) { wx /= len; wz /= len; }
 
-  const walking = keys['ShiftLeft'] || keys['ShiftRight'];
-  /* C 键蹲下：按住生效，视点与碰撞高度平滑过渡 */
-  const crouching = !!keys['KeyC'];
+  /* 静步默认绑定左 Shift；未改键时右 Shift 也可以 */
+  const walking = isDown('walk') || (bindings.walk === 'ShiftLeft' && !!keys['ShiftRight']);
+  /* 蹲下：按住生效，视点与碰撞高度平滑过渡 */
+  const crouching = isDown('crouch');
   player.crouchAmt += ((crouching ? 1 : 0) - player.crouchAmt) * (1 - Math.exp(-16 * dt));
   const speed = crouching ? CROUCH_SPEED : walking ? WALK_SPEED : RUN_SPEED;
   const accel = player.onGround ? 13 : 2.5;

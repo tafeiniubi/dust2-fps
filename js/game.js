@@ -20,9 +20,14 @@ import { updateHUD, drawMinimap, resetHUD, bindBotSource, showHitmarker } from '
 import { showGameUI, showPauseUI, hidePauseUI, showEndUI, showMenuUI } from './ui/screens.js';
 import { dom } from './ui/dom.js';
 import { bindInput, releasePointerLock } from './core/input.js';
+import { bindings, loadBindings } from './core/bindings.js';
+import { initKeySettings, hideKeySettings, isKeySettingsOpen } from './ui/settings.js';
 
 /* HUD 需要敌人列表，这里注入，避免 ui → entities 的循环依赖 */
 bindBotSource(() => bots);
+
+/* 先恢复玩家上次保存的键位，再让输入层和设置面板开始工作 */
+loadBindings();
 
 /* --------------------------------------------------------------- 射击 */
 const shootRay = new THREE.Raycaster();
@@ -157,6 +162,7 @@ function updateGame(dt) {
 /* --------------------------------------------------------------- 开始 / 暂停 */
 export function startGame() {
   initAudio();
+  hideKeySettings();
   showGameUI();
   resetHUD();
 
@@ -212,6 +218,8 @@ export function togglePause() {
 
 export function resumeGame() {
   if (G.state !== 'paused') return;
+  /* 设置面板打开时，Esc 先回到暂停菜单，而不是直接继续游戏 */
+  if (isKeySettingsOpen()) { hideKeySettings(); return; }
   G.state = 'playing';
   hidePauseUI();
   initAudio();
@@ -220,6 +228,7 @@ export function resumeGame() {
 /** 退出到主菜单（暂停菜单里的“退出游戏”） */
 export function quitToMenu() {
   releasePointerLock();
+  hideKeySettings();
   G.state = 'menu';
   G.endAt = 0;
   G.endWin = false;
@@ -300,6 +309,8 @@ bindInput({
   start: startGame,
 });
 
+initKeySettings();
+
 dom.startBtn.addEventListener('click', () => startGame());
 dom.restartBtn.addEventListener('click', () => startGame());
 dom.resumeBtn.addEventListener('click', () => resumeGame());
@@ -318,6 +329,7 @@ window.__dust = {
   player,
   camera,
   keys,
+  bindings,
   look,
   playerShoot,
   damagePlayer,

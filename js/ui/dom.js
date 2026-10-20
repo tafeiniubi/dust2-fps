@@ -19,6 +19,14 @@ export const dom = {
   restartPauseBtn: $('restartPauseBtn'),
   quitBtn: $('quitBtn'),
 
+  menuBtns: document.querySelector('#pauseScreen .menuBtns'),
+  settingsBtn: $('settingsBtn'),
+  keySettings: $('keySettings'),
+  keyRows: $('keyRows'),
+  resetKeysBtn: $('resetKeysBtn'),
+  backToMenuBtn: $('backToMenuBtn'),
+  ksTip: $('ksTip'),
+
   hpNum: $('hpNum'),
   hpBar: $('hpBar'),
   ammoNum: $('ammoNum'),

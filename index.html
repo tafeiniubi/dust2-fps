@@ -50,18 +50,18 @@
     <p class="subtitle">反恐精英风格 · de_dust2 简化版 · 3D FPS</p>
     <p class="brief">沙漠二号。六名恐怖分子已分散占据 A 大通道、A 包点、B 洞、B 包点、中路与 CT 出生点。穿过走廊与包点，清除全部目标。</p>
     <div class="ctrlGrid">
-      <div class="ctrl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>移动</span></div>
+      <div class="ctrl"><kbd data-bind="forward">W</kbd><kbd data-bind="left">A</kbd><kbd data-bind="back">S</kbd><kbd data-bind="right">D</kbd><span>移动</span></div>
       <div class="ctrl"><kbd>鼠标左键</kbd><span>射击 / 拖动转向</span></div>
       <div class="ctrl"><kbd>鼠标右键</kbd><span>拖动转向</span></div>
-      <div class="ctrl"><kbd>Space</kbd><span>跳跃</span></div>
-      <div class="ctrl"><kbd>Shift</kbd><span>静步</span></div>
-      <div class="ctrl"><kbd>C</kbd><span>蹲下</span></div>
-      <div class="ctrl"><kbd>R</kbd><span>换弹</span></div>
-      <div class="ctrl"><kbd>L</kbd><span>锁定鼠标</span></div>
-      <div class="ctrl"><kbd>Esc</kbd><span>暂停</span></div>
+      <div class="ctrl"><kbd data-bind="jump">Space</kbd><span>跳跃</span></div>
+      <div class="ctrl"><kbd data-bind="walk">Shift</kbd><span>静步</span></div>
+      <div class="ctrl"><kbd data-bind="crouch">C</kbd><span>蹲下</span></div>
+      <div class="ctrl"><kbd data-bind="reload">R</kbd><span>换弹</span></div>
+      <div class="ctrl"><kbd data-bind="lock">L</kbd><span>锁定鼠标</span></div>
+      <div class="ctrl"><kbd>Esc</kbd><span>暂停 / 按键设置</span></div>
     </div>
     <button id="startBtn" class="bigBtn">进 入 战 场</button>
-    <p class="footNote">Three.js 通过官方 CDN 加载，首次进入需要网络连接。提示：按住左键拖动可以边转向边射击。</p>
+    <p class="footNote">Three.js 通过官方 CDN 加载，首次进入需要网络连接。提示：按住左键拖动可以边转向边射击；按键可在暂停菜单里自定义。</p>
   </div>
 </div>
 
@@ -73,8 +73,20 @@
     <div class="menuBtns">
       <button id="resumeBtn" class="bigBtn">继 续 战 斗</button>
       <button id="restartPauseBtn" class="ghostBtn">重 新 开 始</button>
+      <button id="settingsBtn" class="ghostBtn">按 键 设 置</button>
       <button id="quitBtn" class="ghostBtn danger">退 出 游 戏</button>
     </div>
+
+    <div id="keySettings" class="keySettings hidden">
+      <div class="ksHead">
+        <span class="ksTitle">自 定 义 按 键</span>
+        <button id="resetKeysBtn" class="ghostBtn tiny">恢复默认</button>
+      </div>
+      <div id="keyRows" class="keyRows"></div>
+      <p id="ksTip" class="ksTip">点击按键后按下新键，Esc 取消；重复的按键会自动交换。设置保存在本机浏览器。</p>
+      <button id="backToMenuBtn" class="ghostBtn">返 回</button>
+    </div>
+
     <p class="footNote">退出游戏会返回主菜单，当前进度不会保留。</p>
   </div>
 </div>
